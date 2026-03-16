@@ -60,4 +60,7 @@ dependencies {
     // Coroutines for async tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+
+    // Guava (required for ListenableFuture used by Media3)
+    implementation("com.google.guava:guava:31.1-android")
 }

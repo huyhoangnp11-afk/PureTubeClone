@@ -10,12 +10,12 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import com.example.puretube.api.InvidiousApi
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -59,13 +59,13 @@ class MainActivity : AppCompatActivity() {
         val sessionToken = SessionToken(this, ComponentName(this, PlaybackService::class.java))
         mediaControllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
         mediaControllerFuture?.addListener({
-            mediaController = mediaControllerFuture?.get()
-            playerView.player = mediaController
-            
-            // Set up a listener for picture-in-picture mode changes if needed
-            // (Android automatically handles simple PiP on modern versions when user leaves app)
-            
-        }, androidx.core.content.ContextCompat.getMainExecutor(this))
+            try {
+                mediaController = mediaControllerFuture?.get()
+                playerView.player = mediaController
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }, MoreExecutors.directExecutor())
     }
 
     override fun onStop() {
@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
         mediaControllerFuture?.let {
             MediaController.releaseFuture(it)
         }
+        mediaController = null
     }
 
     private fun fetchAndPlayVideo(videoId: String) {
@@ -81,23 +82,21 @@ class MainActivity : AppCompatActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Lấy thông tin video từ Invidious API
                 val videoDetails = invidiousApi.getVideoDetails(videoId)
-                
+
                 withContext(Dispatchers.Main) {
                     tvVideoTitle.text = videoDetails.title
 
-                    // Lấy stream tốt nhất (có dạng mp4)
-                    val bestStream = videoDetails.formatStreams.find { 
-                        it.type.contains("video/mp4") 
+                    val bestStream = videoDetails.formatStreams.find {
+                        it.type.contains("video/mp4")
                     } ?: videoDetails.formatStreams.firstOrNull()
 
                     if (bestStream != null) {
                         playVideoUrl(bestStream.url)
                     } else {
-                        Toast.makeText(this@MainActivity, "Không tìm thấy luồng phát phù hợp", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Không tìm thấy luồng phát", Toast.LENGTH_LONG).show()
                     }
-                    
+
                     progressBar.visibility = View.GONE
                     btnPlay.isEnabled = true
                 }
@@ -119,10 +118,9 @@ class MainActivity : AppCompatActivity() {
             player.play()
         }
     }
-    
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Cho phép app thu nhỏ xuống thành cửa sổ nổi (PiP) khi bấm Home (Android 8.0+)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val player = mediaController
             if (player != null && player.isPlaying) {
