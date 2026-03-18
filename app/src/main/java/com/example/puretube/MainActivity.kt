@@ -1,8 +1,10 @@
 package com.example.puretube
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.PictureInPictureParams
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -15,6 +17,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.io.ByteArrayInputStream
 
 class MainActivity : AppCompatActivity() {
@@ -24,7 +28,7 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    // List of ad-serving domains to block
+    // Extended list of ad-serving domains to block
     private val adHosts = setOf(
         "googlesyndication.com",
         "googleads.g.doubleclick.net",
@@ -36,44 +40,40 @@ class MainActivity : AppCompatActivity() {
         "googleadservices.com",
         "static.doubleclick.net",
         "s0.2mdn.net",
-        "yt3.ggpht.com",      // some ad-related
-        "play.google.com",     // app install ads
+        "yt3.ggpht.com",
+        "play.google.com",
+        "adservice.google.com",
+        "adservice.google.com.vn",
+        "google-analytics.com",
+        "securepubads.g.doubleclick.net"
     )
 
-    // JavaScript to remove ad overlays and skip ad videos
+    // Aggressive JavaScript to remove ad overlays and skip ad videos
     private val adBlockScript = """
         (function() {
             'use strict';
-            
-            // Function to skip ads
             function skipAds() {
-                // Click "Skip Ad" button if present
-                var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, [class*="skip-button"]');
+                var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, [class*="skip-button"], [id^="skip-button"]');
                 skipButtons.forEach(function(btn) { btn.click(); });
                 
-                // Remove ad overlays
-                var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial');
+                var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial, .ytp-ad-promo-overlay');
                 adOverlays.forEach(function(el) { el.remove(); });
                 
-                // Force skip video ads by setting currentTime
                 var video = document.querySelector('video');
-                if (video && document.querySelector('.ytp-ad-player-overlay')) {
+                if (video && (document.querySelector('.ytp-ad-player-overlay') || document.querySelector('.ad-showing'))) {
                     video.currentTime = video.duration || 999;
                 }
                 
-                // Remove banner ads and promoted content
-                var bannerAds = document.querySelectorAll('[class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles-light-cta"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer');
-                bannerAds.forEach(function(el) { el.remove(); });
+                var bannerAds = document.querySelectorAll('[class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytm-promoted-video-renderer');
+                bannerAds.forEach(function(el) { el.style.display = 'none'; el.remove(); });
                 
-                // Remove masthead ads
-                var mastheadAds = document.querySelectorAll('#masthead-ad, ytd-primetime-promo-renderer');
-                mastheadAds.forEach(function(el) { el.remove(); });
+                var mastheadAds = document.querySelectorAll('#masthead-ad, ytd-primetime-promo-renderer, .masthead-ad-control');
+                mastheadAds.forEach(function(el) { el.style.display = 'none'; el.remove(); });
+                
+                var mobileAds = document.querySelectorAll('ytm-promoted-sparkles-text-search-renderer, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer');
+                mobileAds.forEach(function(el) { el.style.display = 'none'; el.remove(); });
             }
-            
-            // Run every 500ms to catch dynamically loaded ads
-            setInterval(skipAds, 500);
-            
-            // Also run on DOM changes
+            setInterval(skipAds, 400);
             var observer = new MutationObserver(skipAds);
             observer.observe(document.body || document.documentElement, {childList: true, subtree: true});
         })();
@@ -83,13 +83,18 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Create layout programmatically
+        // Request POST_NOTIFICATIONS for background service on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         fullscreenContainer = FrameLayout(this)
         webView = WebView(this)
         fullscreenContainer.addView(webView)
         setContentView(fullscreenContainer)
 
-        // Configure WebView settings
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -104,24 +109,19 @@ class MainActivity : AppCompatActivity() {
             userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         }
 
-        // Enable cookies (for YouTube login if needed)
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-        // Set up WebView client to block ads at network level
         webView.webViewClient = object : WebViewClient() {
-
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url?.toString() ?: return null
                 
-                // Block requests to known ad domains
                 for (adHost in adHosts) {
                     if (url.contains(adHost)) {
                         return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(byteArrayOf()))
                     }
                 }
                 
-                // Block common ad URL patterns
                 if (url.contains("/pagead/") || 
                     url.contains("/pcs/activeview") ||
                     url.contains("google_ads") ||
@@ -130,18 +130,15 @@ class MainActivity : AppCompatActivity() {
                     url.contains("/api/stats/ads")) {
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(byteArrayOf()))
                 }
-                
                 return super.shouldInterceptRequest(view, request)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // Inject ad-blocking JavaScript after page loads
                 view?.evaluateJavascript(adBlockScript, null)
             }
         }
 
-        // Set up WebChromeClient for fullscreen video support
         webView.webChromeClient = object : WebChromeClient() {
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                 customView = view
@@ -158,8 +155,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Load YouTube mobile
         webView.loadUrl("https://m.youtube.com")
+        startBackgroundService()
+    }
+
+    private fun startBackgroundService() {
+        val serviceIntent = Intent(this, BackgroundAudioService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
     }
 
     override fun onBackPressed() {
@@ -177,25 +183,24 @@ class MainActivity : AppCompatActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Enter PiP mode when user presses Home while video is playing
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-            } catch (e: Exception) {
-                // PiP not supported or not in valid state
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                try {
+                    val params = PictureInPictureParams.Builder().build()
+                    enterPictureInPictureMode(params)
+                } catch (e: Exception) {}
             }
         }
     }
 
     override fun onPause() {
         super.onPause()
-        // Keep audio playing in background by injecting JS to prevent pause
+        // Override pause so video keeps running
         webView.evaluateJavascript("""
             (function() {
                 var videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
                     v.play();
-                    // Override the pause function to prevent YouTube from pausing
                     v._originalPause = v.pause;
                     v.pause = function() { /* blocked */ };
                 });
@@ -205,7 +210,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Restore original pause function
         webView.evaluateJavascript("""
             (function() {
                 var videos = document.querySelectorAll('video');
@@ -219,7 +223,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        stopService(Intent(this, BackgroundAudioService::class.java))
         webView.destroy()
         super.onDestroy()
     }
 }
+
