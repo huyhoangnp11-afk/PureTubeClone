@@ -98,8 +98,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 
-                var adElements = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial, .ytp-ad-promo-overlay, ytm-promoted-video-renderer, [class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, #masthead-ad, ytd-primetime-promo-renderer, .masthead-ad-control, ytm-promoted-sparkles-text-search-renderer, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer');
-                adElements.forEach(function(el) { el.style.display = 'none'; el.remove(); });
+                // CAREFUL: Do not use [class*="ad-show"] because the main player gets the class "ad-showing", which deletes the whole video player!
+                var adElements = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial, .ytp-ad-promo-overlay, ytm-promoted-video-renderer, [class*="ytd-promoted"], [class*="sparkles"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, #masthead-ad, ytd-primetime-promo-renderer, .masthead-ad-control, ytm-promoted-sparkles-text-search-renderer, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer');
+                adElements.forEach(function(el) { el.style.display = 'none'; /* Do not remove to avoid breaking player state */ });
                 
                 // Car Screen Optimizations: Hide distracting elements (Shorts tab, comments, promos)
                 var carElements = document.querySelectorAll('ytm-pivot-bar-renderer, ytm-comment-header-renderer, .comment-section, ytm-promoted-video-renderer, ytm-mealbar-promo-renderer');
