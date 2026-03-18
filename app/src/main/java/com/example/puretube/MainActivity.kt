@@ -1,131 +1,225 @@
 package com.example.puretube
 
-import android.content.ComponentName
+import android.annotation.SuppressLint
+import android.app.PictureInPictureParams
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.widget.Toast
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import androidx.media3.common.MediaItem
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import androidx.media3.ui.PlayerView
-import com.example.puretube.api.InvidiousApi
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var playerView: PlayerView
-    private lateinit var etSearchBox: EditText
-    private lateinit var btnPlay: Button
-    private lateinit var progressBar: ProgressBar
-    private lateinit var tvVideoTitle: TextView
+    private lateinit var webView: WebView
+    private lateinit var fullscreenContainer: FrameLayout
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
-    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
-    private var mediaController: MediaController? = null
+    // List of ad-serving domains to block
+    private val adHosts = setOf(
+        "googlesyndication.com",
+        "googleads.g.doubleclick.net",
+        "pagead2.googlesyndication.com",
+        "ad.doubleclick.net",
+        "ads.google.com",
+        "www.googleadservices.com",
+        "tpc.googlesyndication.com",
+        "googleadservices.com",
+        "static.doubleclick.net",
+        "s0.2mdn.net",
+        "yt3.ggpht.com",      // some ad-related
+        "play.google.com",     // app install ads
+    )
 
-    private val invidiousApi = InvidiousApi.create()
+    // JavaScript to remove ad overlays and skip ad videos
+    private val adBlockScript = """
+        (function() {
+            'use strict';
+            
+            // Function to skip ads
+            function skipAds() {
+                // Click "Skip Ad" button if present
+                var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, [class*="skip-button"]');
+                skipButtons.forEach(function(btn) { btn.click(); });
+                
+                // Remove ad overlays
+                var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial');
+                adOverlays.forEach(function(el) { el.remove(); });
+                
+                // Force skip video ads by setting currentTime
+                var video = document.querySelector('video');
+                if (video && document.querySelector('.ytp-ad-player-overlay')) {
+                    video.currentTime = video.duration || 999;
+                }
+                
+                // Remove banner ads and promoted content
+                var bannerAds = document.querySelectorAll('[class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles-light-cta"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer');
+                bannerAds.forEach(function(el) { el.remove(); });
+                
+                // Remove masthead ads
+                var mastheadAds = document.querySelectorAll('#masthead-ad, ytd-primetime-promo-renderer');
+                mastheadAds.forEach(function(el) { el.remove(); });
+            }
+            
+            // Run every 500ms to catch dynamically loaded ads
+            setInterval(skipAds, 500);
+            
+            // Also run on DOM changes
+            var observer = new MutationObserver(skipAds);
+            observer.observe(document.body || document.documentElement, {childList: true, subtree: true});
+        })();
+    """.trimIndent()
 
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        playerView = findViewById(R.id.playerView)
-        etSearchBox = findViewById(R.id.etSearchBox)
-        btnPlay = findViewById(R.id.btnPlay)
-        progressBar = findViewById(R.id.progressBar)
-        tvVideoTitle = findViewById(R.id.tvVideoTitle)
+        // Create layout programmatically
+        fullscreenContainer = FrameLayout(this)
+        webView = WebView(this)
+        fullscreenContainer.addView(webView)
+        setContentView(fullscreenContainer)
 
-        btnPlay.setOnClickListener {
-            val videoId = etSearchBox.text.toString().trim()
-            if (videoId.isNotEmpty()) {
-                fetchAndPlayVideo(videoId)
-            } else {
-                Toast.makeText(this, "Vui lòng nhập Video ID", Toast.LENGTH_SHORT).show()
-            }
+        // Configure WebView settings
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            allowContentAccess = true
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         }
-    }
 
-    override fun onStart() {
-        super.onStart()
-        val sessionToken = SessionToken(this, ComponentName(this, PlaybackService::class.java))
-        mediaControllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
-        mediaControllerFuture?.addListener({
-            try {
-                mediaController = mediaControllerFuture?.get()
-                playerView.player = mediaController
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }, MoreExecutors.directExecutor())
-    }
+        // Enable cookies (for YouTube login if needed)
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-    override fun onStop() {
-        super.onStop()
-        mediaControllerFuture?.let {
-            MediaController.releaseFuture(it)
-        }
-        mediaController = null
-    }
+        // Set up WebView client to block ads at network level
+        webView.webViewClient = object : WebViewClient() {
 
-    private fun fetchAndPlayVideo(videoId: String) {
-        progressBar.visibility = View.VISIBLE
-        btnPlay.isEnabled = false
-
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val videoDetails = invidiousApi.getVideoDetails(videoId)
-
-                withContext(Dispatchers.Main) {
-                    tvVideoTitle.text = videoDetails.title
-
-                    val bestStream = videoDetails.formatStreams.find {
-                        it.type.contains("video/mp4")
-                    } ?: videoDetails.formatStreams.firstOrNull()
-
-                    if (bestStream != null) {
-                        playVideoUrl(bestStream.url)
-                    } else {
-                        Toast.makeText(this@MainActivity, "Không tìm thấy luồng phát", Toast.LENGTH_LONG).show()
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                val url = request?.url?.toString() ?: return null
+                
+                // Block requests to known ad domains
+                for (adHost in adHosts) {
+                    if (url.contains(adHost)) {
+                        return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(byteArrayOf()))
                     }
+                }
+                
+                // Block common ad URL patterns
+                if (url.contains("/pagead/") || 
+                    url.contains("/pcs/activeview") ||
+                    url.contains("google_ads") ||
+                    url.contains("/ad_data") ||
+                    url.contains("doubleclick") ||
+                    url.contains("/api/stats/ads")) {
+                    return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(byteArrayOf()))
+                }
+                
+                return super.shouldInterceptRequest(view, request)
+            }
 
-                    progressBar.visibility = View.GONE
-                    btnPlay.isEnabled = true
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Lỗi: ${e.message}", Toast.LENGTH_LONG).show()
-                    progressBar.visibility = View.GONE
-                    btnPlay.isEnabled = true
-                }
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                // Inject ad-blocking JavaScript after page loads
+                view?.evaluateJavascript(adBlockScript, null)
             }
         }
+
+        // Set up WebChromeClient for fullscreen video support
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                customView = view
+                customViewCallback = callback
+                fullscreenContainer.addView(view)
+                webView.visibility = View.GONE
+            }
+
+            override fun onHideCustomView() {
+                fullscreenContainer.removeView(customView)
+                customView = null
+                customViewCallback?.onCustomViewHidden()
+                webView.visibility = View.VISIBLE
+            }
+        }
+
+        // Load YouTube mobile
+        webView.loadUrl("https://m.youtube.com")
     }
 
-    private fun playVideoUrl(url: String) {
-        val mediaItem = MediaItem.fromUri(url)
-        mediaController?.let { player ->
-            player.setMediaItem(mediaItem)
-            player.prepare()
-            player.play()
+    override fun onBackPressed() {
+        if (customView != null) {
+            customViewCallback?.onCustomViewHidden()
+            fullscreenContainer.removeView(customView)
+            customView = null
+            webView.visibility = View.VISIBLE
+        } else if (webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            super.onBackPressed()
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val player = mediaController
-            if (player != null && player.isPlaying) {
-                enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().build())
+        // Enter PiP mode when user presses Home while video is playing
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+            } catch (e: Exception) {
+                // PiP not supported or not in valid state
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Keep audio playing in background by injecting JS to prevent pause
+        webView.evaluateJavascript("""
+            (function() {
+                var videos = document.querySelectorAll('video');
+                videos.forEach(function(v) {
+                    v.play();
+                    // Override the pause function to prevent YouTube from pausing
+                    v._originalPause = v.pause;
+                    v.pause = function() { /* blocked */ };
+                });
+            })();
+        """.trimIndent(), null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Restore original pause function
+        webView.evaluateJavascript("""
+            (function() {
+                var videos = document.querySelectorAll('video');
+                videos.forEach(function(v) {
+                    if (v._originalPause) {
+                        v.pause = v._originalPause;
+                    }
+                });
+            })();
+        """.trimIndent(), null)
+    }
+
+    override fun onDestroy() {
+        webView.destroy()
+        super.onDestroy()
     }
 }
