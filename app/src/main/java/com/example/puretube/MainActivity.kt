@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
@@ -274,9 +276,17 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // We no longer block v.pause() here! 
-        // This allows Chromium to natively pause the video if a Zalo Call comes in (Audio Focus loss).
-        // Background play still works because we spoofed the Page Visibility API in JS.
+        // When Android sends the app to the background, Chromium automatically pauses HTML5 media.
+        // We playfully force the video to resume 300ms later.
+        // We intentionally DO NOT block `v.pause` so that Zalo calls and Notifications can still natively pause the audio via AudioFocus!
+        Handler(Looper.getMainLooper()).postDelayed({
+            webView.evaluateJavascript("""
+                (function() {
+                    var v = document.querySelector('video');
+                    if (v && !v.ended) { v.play(); }
+                })();
+            """.trimIndent(), null)
+        }, 400)
     }
 
     override fun onResume() {
