@@ -43,4 +43,10 @@ class BackgroundAudioService : Service() {
             manager.createNotificationChannel(channel)
         }
     }
+    
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Clean up when user swipes app away from recents
+        stopSelf()
+    }
 }

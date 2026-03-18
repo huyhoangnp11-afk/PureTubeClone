@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -73,6 +74,10 @@ class MainActivity : AppCompatActivity() {
                 
                 var adElements = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial, .ytp-ad-promo-overlay, ytm-promoted-video-renderer, [class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, #masthead-ad, ytd-primetime-promo-renderer, .masthead-ad-control, ytm-promoted-sparkles-text-search-renderer, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer');
                 adElements.forEach(function(el) { el.style.display = 'none'; el.remove(); });
+                
+                // Car Screen Optimizations: Hide distracting elements (Shorts tab, comments, promos)
+                var carElements = document.querySelectorAll('ytm-pivot-bar-renderer, ytm-comment-header-renderer, .comment-section, ytm-promoted-video-renderer, ytm-mealbar-promo-renderer');
+                carElements.forEach(function(el) { el.style.display = 'none'; });
             }
             setInterval(skipAds, 250);
             var observer = new MutationObserver(skipAds);
@@ -83,6 +88,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Keep screen on for Car Driving
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Request POST_NOTIFICATIONS for background service on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -189,7 +197,8 @@ class MainActivity : AppCompatActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            // Only enter PiP if watching a video
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) && webView.url?.contains("/watch") == true) {
                 try {
                     val params = PictureInPictureParams.Builder().build()
                     enterPictureInPictureMode(params)
@@ -229,6 +238,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stopService(Intent(this, BackgroundAudioService::class.java))
+        fullscreenContainer.removeAllViews() // Prevent Memory Leak
         webView.destroy()
         super.onDestroy()
     }
