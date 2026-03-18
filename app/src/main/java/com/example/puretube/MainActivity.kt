@@ -52,28 +52,29 @@ class MainActivity : AppCompatActivity() {
     private val adBlockScript = """
         (function() {
             'use strict';
+            
+            // Spoof Page Visibility API so video keeps rendering in PiP
+            Object.defineProperty(document, 'hidden', {get: function() {return false;}});
+            Object.defineProperty(document, 'visibilityState', {get: function() {return 'visible';}});
+            document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+            window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
+            
             function skipAds() {
-                var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, [class*="skip-button"], [id^="skip-button"]');
+                var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, [class*="skip-button"], [id^="skip-button"], .ytm-custom-ad-skip-button');
                 skipButtons.forEach(function(btn) { btn.click(); });
                 
-                var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial, .ytp-ad-promo-overlay');
-                adOverlays.forEach(function(el) { el.remove(); });
-                
                 var video = document.querySelector('video');
-                if (video && (document.querySelector('.ytp-ad-player-overlay') || document.querySelector('.ad-showing'))) {
-                    video.currentTime = video.duration || 999;
+                if (video) {
+                    var isAdShowing = document.querySelector('.ytp-ad-player-overlay, .ad-showing, .ytm-custom-ad-snapshot');
+                    if (isAdShowing) {
+                        video.currentTime = video.duration || 999;
+                    }
                 }
                 
-                var bannerAds = document.querySelectorAll('[class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytm-promoted-video-renderer');
-                bannerAds.forEach(function(el) { el.style.display = 'none'; el.remove(); });
-                
-                var mastheadAds = document.querySelectorAll('#masthead-ad, ytd-primetime-promo-renderer, .masthead-ad-control');
-                mastheadAds.forEach(function(el) { el.style.display = 'none'; el.remove(); });
-                
-                var mobileAds = document.querySelectorAll('ytm-promoted-sparkles-text-search-renderer, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer');
-                mobileAds.forEach(function(el) { el.style.display = 'none'; el.remove(); });
+                var adElements = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text-overlay, .ad-container, .video-ads, .ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-action-interstitial, .ytp-ad-promo-overlay, ytm-promoted-video-renderer, [class*="ad-show"], [class*="ytd-promoted"], [class*="sparkles"], ytd-promoted-sparkles-web-renderer, #player-ads, .ytd-banner-promo-renderer, .ytd-statement-banner-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, #masthead-ad, ytd-primetime-promo-renderer, .masthead-ad-control, ytm-promoted-sparkles-text-search-renderer, ytm-promoted-sparkles-web-renderer, ytm-companion-ad-renderer');
+                adElements.forEach(function(el) { el.style.display = 'none'; el.remove(); });
             }
-            setInterval(skipAds, 400);
+            setInterval(skipAds, 250);
             var observer = new MutationObserver(skipAds);
             observer.observe(document.body || document.documentElement, {childList: true, subtree: true});
         })();
@@ -127,7 +128,11 @@ class MainActivity : AppCompatActivity() {
                     url.contains("google_ads") ||
                     url.contains("/ad_data") ||
                     url.contains("doubleclick") ||
-                    url.contains("/api/stats/ads")) {
+                    url.contains("/api/stats/ads") ||
+                    url.contains("&adformat=") ||
+                    url.contains("?adformat=") ||
+                    url.contains("?ad_type=") ||
+                    url.contains("&ad_type=")) {
                     return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(byteArrayOf()))
                 }
                 return super.shouldInterceptRequest(view, request)
