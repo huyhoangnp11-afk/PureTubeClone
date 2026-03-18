@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -17,10 +18,30 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.net.Uri
+import android.content.Context
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.ByteArrayInputStream
+
+class WebAppInterface(private val context: Context) {
+    @JavascriptInterface
+    fun launchMapsSplitScreen() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q="))
+            intent.setPackage("com.google.android.apps.maps")
+            intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val i = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
+            if (i != null) {
+                i.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                context.startActivity(i)
+            }
+        }
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -78,6 +99,20 @@ class MainActivity : AppCompatActivity() {
                 // Car Screen Optimizations: Hide distracting elements (Shorts tab, comments, promos)
                 var carElements = document.querySelectorAll('ytm-pivot-bar-renderer, ytm-comment-header-renderer, .comment-section, ytm-promoted-video-renderer, ytm-mealbar-promo-renderer');
                 carElements.forEach(function(el) { el.style.display = 'none'; });
+                
+                // Inject Auto Split-Screen Button for Car Use
+                if (!document.getElementById('drive-mode-btn') && window.location.href.includes('youtube.com')) {
+                    var btn = document.createElement('div');
+                    btn.id = 'drive-mode-btn';
+                    btn.innerHTML = '🗺️ BẢN ĐỒ';
+                    btn.style.cssText = 'position:fixed; bottom:70px; right:20px; z-index:99999; background:rgba(66, 133, 244, 0.9); color:white; padding:12px 20px; border-radius:30px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.3); font-size:16px; cursor:pointer;';
+                    btn.onclick = function() {
+                        if(window.AndroidApp) {
+                            window.AndroidApp.launchMapsSplitScreen();
+                        }
+                    };
+                    document.body.appendChild(btn);
+                }
             }
             setInterval(skipAds, 250);
             var observer = new MutationObserver(skipAds);
@@ -117,9 +152,12 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         }
-
+        // Enable cookies (for YouTube login if needed)
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        
+        // Add Javascript Interface for Car Features
+        webView.addJavascriptInterface(WebAppInterface(this), "AndroidApp")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -209,31 +247,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Override pause so video keeps running
-        webView.evaluateJavascript("""
-            (function() {
-                var videos = document.querySelectorAll('video');
-                videos.forEach(function(v) {
-                    v.play();
-                    v._originalPause = v.pause;
-                    v.pause = function() { /* blocked */ };
-                });
-            })();
-        """.trimIndent(), null)
+        // We no longer block v.pause() here! 
+        // This allows Chromium to natively pause the video if a Zalo Call comes in (Audio Focus loss).
+        // Background play still works because we spoofed the Page Visibility API in JS.
     }
 
     override fun onResume() {
         super.onResume()
-        webView.evaluateJavascript("""
-            (function() {
-                var videos = document.querySelectorAll('video');
-                videos.forEach(function(v) {
-                    if (v._originalPause) {
-                        v.pause = v._originalPause;
-                    }
-                });
-            })();
-        """.trimIndent(), null)
     }
 
     override fun onDestroy() {
