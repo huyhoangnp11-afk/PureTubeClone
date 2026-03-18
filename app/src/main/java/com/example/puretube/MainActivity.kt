@@ -14,6 +14,12 @@ import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.app.PendingIntent
+import android.graphics.drawable.Icon
+import android.app.RemoteAction
+import android.content.res.Configuration
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -27,7 +33,12 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.ByteArrayInputStream
 
-class WebAppInterface(private val context: Context) {
+class WebAppInterface(private val context: Context, private val mainActivity: MainActivity) {
+    @JavascriptInterface
+    fun reportPlaybackState(isPlaying: Boolean) {
+        mainActivity.onPlaybackStateChanged(isPlaying)
+    }
+
     @JavascriptInterface
     fun launchMapsSplitScreen(mapType: String) {
         val packageName = if (mapType == "vietmap") "vn.vietmap.vietmaplive" else "com.google.android.apps.maps"
@@ -56,6 +67,46 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fullscreenContainer: FrameLayout
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var isVideoPlaying = false
+
+    private val playPauseReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.puretube.ACTION_PLAY_PAUSE") {
+                webView.evaluateJavascript("var v = document.querySelector('video'); if(v) { if(v.paused) v.play(); else v.pause(); }", null)
+            }
+        }
+    }
+
+    fun onPlaybackStateChanged(isPlaying: Boolean) {
+        runOnUiThread {
+            if (this.isVideoPlaying != isPlaying) {
+                this.isVideoPlaying = isPlaying
+                
+                val serviceIntent = Intent(this, BackgroundAudioService::class.java)
+                serviceIntent.action = "UPDATE_PLAYSTATE"
+                serviceIntent.putExtra("is_playing", isPlaying)
+                startService(serviceIntent)
+                
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+                    updatePiPParams()
+                }
+            }
+        }
+    }
+
+    private fun updatePiPParams() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val playPauseIntent = Intent("com.puretube.ACTION_PLAY_PAUSE")
+            val pendingIntent = PendingIntent.getBroadcast(this, 0, playPauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val icon = Icon.createWithResource(this, if (isVideoPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+            val action = RemoteAction(icon, "Play/Pause", "Play/Pause", pendingIntent)
+            
+            val params = PictureInPictureParams.Builder()
+                .setActions(listOf(action))
+                .build()
+            setPictureInPictureParams(params)
+        }
+    }
 
     // Extended list of ad-serving domains to block
     private val adHosts = setOf(
@@ -142,6 +193,13 @@ class MainActivity : AppCompatActivity() {
                     document.body.appendChild(container);
                     showButtons();
                 }
+                
+                setInterval(function() {
+                    var v = document.querySelector('video');
+                    if (v && window.AndroidApp && window.AndroidApp.reportPlaybackState) {
+                        window.AndroidApp.reportPlaybackState(!v.paused);
+                    }
+                }, 500);
             }
             setInterval(skipAds, 250);
             var observer = new MutationObserver(skipAds);
@@ -149,9 +207,16 @@ class MainActivity : AppCompatActivity() {
         })();
     """.trimIndent()
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        val filter = IntentFilter("com.puretube.ACTION_PLAY_PAUSE")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(playPauseReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(playPauseReceiver, filter)
+        }
         
         // Keep screen on for Car Driving
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -186,7 +251,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         
         // Add Javascript Interface for Car Features
-        webView.addJavascriptInterface(WebAppInterface(this), "AndroidApp")
+        webView.addJavascriptInterface(WebAppInterface(this, this), "AndroidApp")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -267,7 +332,14 @@ class MainActivity : AppCompatActivity() {
             // Only enter PiP if watching a video
             if (packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) && webView.url?.contains("/watch") == true) {
                 try {
-                    val params = PictureInPictureParams.Builder().build()
+                    val playPauseIntent = Intent("com.puretube.ACTION_PLAY_PAUSE")
+                    val pendingIntent = PendingIntent.getBroadcast(this, 0, playPauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    val icon = Icon.createWithResource(this, if (isVideoPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+                    val action = RemoteAction(icon, "Play/Pause", "Play/Pause", pendingIntent)
+
+                    val params = PictureInPictureParams.Builder()
+                        .setActions(listOf(action))
+                        .build()
                     enterPictureInPictureMode(params)
                 } catch (e: Exception) {}
             }
@@ -294,6 +366,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(playPauseReceiver)
         stopService(Intent(this, BackgroundAudioService::class.java))
         fullscreenContainer.removeAllViews() // Prevent Memory Leak
         webView.destroy()

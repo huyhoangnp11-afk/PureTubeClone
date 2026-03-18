@@ -40,4 +40,5 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.webkit:webkit:1.10.0")
+    implementation("androidx.media:media:1.6.0")
 }
