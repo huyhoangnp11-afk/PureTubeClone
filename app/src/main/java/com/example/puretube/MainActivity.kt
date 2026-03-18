@@ -27,18 +27,23 @@ import java.io.ByteArrayInputStream
 
 class WebAppInterface(private val context: Context) {
     @JavascriptInterface
-    fun launchMapsSplitScreen() {
+    fun launchMapsSplitScreen(mapType: String) {
+        val packageName = if (mapType == "vietmap") "vn.vietmap.vietmaplive" else "com.google.android.apps.maps"
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q="))
-            intent.setPackage("com.google.android.apps.maps")
-            intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            val i = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
+            val i = context.packageManager.getLaunchIntentForPackage(packageName)
             if (i != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                 context.startActivity(i)
+            } else {
+                if (mapType == "gmap") {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q="))
+                    intent.setPackage(packageName)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                    context.startActivity(intent)
+                }
             }
+        } catch (e: Exception) {
+            // Ignored if app is completely missing
         }
     }
 }
@@ -100,18 +105,25 @@ class MainActivity : AppCompatActivity() {
                 var carElements = document.querySelectorAll('ytm-pivot-bar-renderer, ytm-comment-header-renderer, .comment-section, ytm-promoted-video-renderer, ytm-mealbar-promo-renderer');
                 carElements.forEach(function(el) { el.style.display = 'none'; });
                 
-                // Inject Auto Split-Screen Button for Car Use
-                if (!document.getElementById('drive-mode-btn') && window.location.href.includes('youtube.com')) {
-                    var btn = document.createElement('div');
-                    btn.id = 'drive-mode-btn';
-                    btn.innerHTML = '🗺️ BẢN ĐỒ';
-                    btn.style.cssText = 'position:fixed; bottom:70px; right:20px; z-index:99999; background:rgba(66, 133, 244, 0.9); color:white; padding:12px 20px; border-radius:30px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.3); font-size:16px; cursor:pointer;';
-                    btn.onclick = function() {
-                        if(window.AndroidApp) {
-                            window.AndroidApp.launchMapsSplitScreen();
-                        }
-                    };
-                    document.body.appendChild(btn);
+                // Inject Auto Split-Screen Buttons for Car Use
+                if (!document.getElementById('maps-container') && window.location.href.includes('youtube.com')) {
+                    var container = document.createElement('div');
+                    container.id = 'maps-container';
+                    container.style.cssText = 'position:fixed; bottom:70px; right:20px; z-index:99999; display:flex; flex-direction:column; gap:10px;';
+                    
+                    var btnGmap = document.createElement('div');
+                    btnGmap.innerHTML = '🗺️ G-Maps';
+                    btnGmap.style.cssText = 'background:rgba(66, 133, 244, 0.9); color:white; padding:12px 18px; border-radius:30px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.3); font-size:15px; cursor:pointer; text-align:center;';
+                    btnGmap.onclick = function() { if(window.AndroidApp) window.AndroidApp.launchMapsSplitScreen("gmap"); };
+                    
+                    var btnVietmap = document.createElement('div');
+                    btnVietmap.innerHTML = '🚀 Vietmap';
+                    btnVietmap.style.cssText = 'background:rgba(0, 150, 136, 0.9); color:white; padding:12px 18px; border-radius:30px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.3); font-size:15px; cursor:pointer; text-align:center;';
+                    btnVietmap.onclick = function() { if(window.AndroidApp) window.AndroidApp.launchMapsSplitScreen("vietmap"); };
+                    
+                    container.appendChild(btnGmap);
+                    container.appendChild(btnVietmap);
+                    document.body.appendChild(container);
                 }
             }
             setInterval(skipAds, 250);
