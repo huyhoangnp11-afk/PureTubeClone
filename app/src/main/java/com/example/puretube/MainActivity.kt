@@ -105,25 +105,39 @@ class MainActivity : AppCompatActivity() {
                 var carElements = document.querySelectorAll('ytm-pivot-bar-renderer, ytm-comment-header-renderer, .comment-section, ytm-promoted-video-renderer, ytm-mealbar-promo-renderer');
                 carElements.forEach(function(el) { el.style.display = 'none'; });
                 
-                // Inject Auto Split-Screen Buttons for Car Use
+                // Inject Auto Split-Screen Buttons for Car Use - Smart UI
                 if (!document.getElementById('maps-container') && window.location.href.includes('youtube.com')) {
                     var container = document.createElement('div');
                     container.id = 'maps-container';
-                    container.style.cssText = 'position:fixed; bottom:70px; right:20px; z-index:99999; display:flex; flex-direction:column; gap:10px;';
+                    container.style.cssText = 'position:fixed; bottom:25px; right:20px; z-index:99999; display:flex; flex-direction:row; gap:10px; opacity:0.3; transition:all 0.4s ease; transform:scale(0.9); transform-origin:right bottom;';
+                    
+                    var fadeTimeout;
+                    function showButtons() {
+                        container.style.opacity = '0.9';
+                        container.style.transform = 'scale(1)';
+                        clearTimeout(fadeTimeout);
+                        fadeTimeout = setTimeout(function(){
+                            container.style.opacity = '0.3';
+                            container.style.transform = 'scale(0.9)';
+                        }, 3500);
+                    }
+                    document.addEventListener('touchstart', showButtons, {passive: true});
+                    document.addEventListener('mousemove', showButtons, {passive: true});
                     
                     var btnGmap = document.createElement('div');
                     btnGmap.innerHTML = '🗺️ G-Maps';
-                    btnGmap.style.cssText = 'background:rgba(66, 133, 244, 0.9); color:white; padding:12px 18px; border-radius:30px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.3); font-size:15px; cursor:pointer; text-align:center;';
-                    btnGmap.onclick = function() { if(window.AndroidApp) window.AndroidApp.launchMapsSplitScreen("gmap"); };
+                    btnGmap.style.cssText = 'background:rgba(66, 133, 244, 0.85); backdrop-filter:blur(8px); color:white; padding:10px 16px; border-radius:24px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 10px rgba(0,0,0,0.3); font-size:13px; cursor:pointer; border:1px solid rgba(255,255,255,0.15);';
+                    btnGmap.onclick = function(e) { e.stopPropagation(); if(window.AndroidApp) window.AndroidApp.launchMapsSplitScreen("gmap"); };
                     
                     var btnVietmap = document.createElement('div');
                     btnVietmap.innerHTML = '🚀 Vietmap';
-                    btnVietmap.style.cssText = 'background:rgba(0, 150, 136, 0.9); color:white; padding:12px 18px; border-radius:30px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.3); font-size:15px; cursor:pointer; text-align:center;';
-                    btnVietmap.onclick = function() { if(window.AndroidApp) window.AndroidApp.launchMapsSplitScreen("vietmap"); };
+                    btnVietmap.style.cssText = 'background:rgba(0, 150, 136, 0.85); backdrop-filter:blur(8px); color:white; padding:10px 16px; border-radius:24px; font-weight:bold; font-family:sans-serif; box-shadow:0 4px 10px rgba(0,0,0,0.3); font-size:13px; cursor:pointer; border:1px solid rgba(255,255,255,0.15);';
+                    btnVietmap.onclick = function(e) { e.stopPropagation(); if(window.AndroidApp) window.AndroidApp.launchMapsSplitScreen("vietmap"); };
                     
                     container.appendChild(btnGmap);
                     container.appendChild(btnVietmap);
                     document.body.appendChild(container);
+                    showButtons();
                 }
             }
             setInterval(skipAds, 250);
